@@ -15,6 +15,7 @@ export const createPetInAirtableTool = createTool({
     species: z.string().optional(),
     age: z.number().int().optional(),
     notes: z.string().optional(),
+    originCity: z.string().optional(),
   }),
   outputSchema: z.object({
     recordId: z.string(),
@@ -24,11 +25,12 @@ export const createPetInAirtableTool = createTool({
       records: [
         {
           fields: {
-            Name: context.name ?? "Unnamed pet",
-            Species: context.species ?? "Other",
-            Age: context.age,
-            Notes: context.notes,
-            Owner: [context.ownerRecordId],
+            "Name": context.name ?? "Unnamed pet",
+            "Species": context.species ?? "Other",
+            "Age": context.age,
+            "Notes": context.notes,
+            "Owner": [context.ownerRecordId],
+            "Origin City": context.originCity ?? "Unknown",
           },
         },
       ],

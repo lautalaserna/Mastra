@@ -5,20 +5,29 @@ import { z } from "zod";
 import { personPetAgent } from "../agents/person-pet-agent";
 import { createPersonInAirtableTool } from "../tools/airtable-person-tool";
 import { createPetInAirtableTool } from "../tools/airtable-pet-tool";
-import { personPetSchema, petSchema } from "../../types/person-pet";
+import { peopleWithPetsSchema } from "../../types/person-pet";
+
+// Schema para el resultado de una persona creada con sus mascotas
+const personResultSchema = z.object({
+  personRecordId: z.string(),
+  petRecordIds: z.array(z.string()),
+});
+
+// Schema para el resultado final del workflow
+const workflowResultSchema = z.array(personResultSchema);
 
 // =====================================================
 // STEP 1: Parsear la descripción con el agent
 // Input: { description: string }
-// Output: { person: {...}, pet: {...} }
+// Output: Array de { person: {...}, pets: [...] }
 // =====================================================
 const parseDescriptionStep = createStep({
   id: "parse-description",
-  description: "Parsea la descripción de texto en persona + mascota",
+  description: "Parsea la descripción de texto en múltiples personas con sus mascotas",
   inputSchema: z.object({
     description: z.string(),
   }),
-  outputSchema: personPetSchema,
+  outputSchema: peopleWithPetsSchema,
   execute: async ({ inputData }) => {
     const { description } = inputData;
 
@@ -26,7 +35,13 @@ const parseDescriptionStep = createStep({
       [{ role: "user", content: description }],
     );
 
-    const raw = response.text;
+    let raw = response.text.trim();
+
+    // Limpiar bloques de código markdown si el agente los incluye
+    if (raw.startsWith("```")) {
+      raw = raw.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
+    }
+
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
@@ -37,99 +52,78 @@ const parseDescriptionStep = createStep({
     }
 
     // Validar y normalizar con Zod
-    const data = personPetSchema.parse(parsed);
+    const data = peopleWithPetsSchema.parse(parsed);
     return data;
   },
 });
 
 // =====================================================
-// STEP 2: Crear la persona en Airtable
-// Input: { person, pet }
-// Output: { personRecordId, pet }
+// STEP 2: Crear todas las personas y mascotas en Airtable
+// Input: Array de { person, pets }
+// Output: Array de { personRecordId, petRecordIds }
 // =====================================================
-const createPersonStep = createStep({
-  id: "create-person-in-airtable",
-  description: "Crea un registro en la tabla People de Airtable",
-  inputSchema: personPetSchema,
-  outputSchema: z.object({
-    personRecordId: z.string(),
-    pet: petSchema,
-  }),
+const createPeopleAndPetsStep = createStep({
+  id: "create-people-and-pets-in-airtable",
+  description: "Crea registros en las tablas People y Pets de Airtable",
+  inputSchema: peopleWithPetsSchema,
+  outputSchema: workflowResultSchema,
   execute: async ({ inputData }) => {
-    const { person, pet } = inputData;
+    const results: z.infer<typeof workflowResultSchema> = [];
 
-    const result = await createPersonInAirtableTool.execute({
-      context: {
-        name: person.name,
-        age: person.age ?? undefined,
-        city: person.city ?? undefined,
-        job: person.job ?? undefined,
-        bio: person.bio ?? undefined,
-      },
-      runtimeContext: new RuntimeContext(),
-    });
+    for (const { person, pets } of inputData) {
+      // Crear la persona
+      const personResult = await createPersonInAirtableTool.execute({
+        context: {
+          name: person.name,
+          age: person.age ?? undefined,
+          city: person.city ?? undefined,
+          job: person.job ?? undefined,
+          bio: person.bio ?? undefined,
+        },
+        runtimeContext: new RuntimeContext(),
+      });
 
-    return {
-      personRecordId: result.recordId,
-      pet,
-    };
-  },
-});
+      const personRecordId = personResult.recordId;
+      const petRecordIds: string[] = [];
 
-// =====================================================
-// STEP 3: Crear la mascota en Airtable
-// Input: { personRecordId, pet }
-// Output: { personRecordId, petRecordId }
-// =====================================================
-const createPetStep = createStep({
-  id: "create-pet-in-airtable",
-  description:
-    "Crea un registro en la tabla Pet de Airtable vinculado a la persona",
-  inputSchema: z.object({
-    personRecordId: z.string(),
-    pet: petSchema,
-  }),
-  outputSchema: z.object({
-    personRecordId: z.string(),
-    petRecordId: z.string(),
-  }),
-  execute: async ({ inputData }) => {
-    const { personRecordId, pet } = inputData;
+      // Crear todas las mascotas de esta persona
+      for (const pet of pets) {
+        const petResult = await createPetInAirtableTool.execute({
+          context: {
+            ownerRecordId: personRecordId,
+            name: pet.name ?? undefined,
+            species: pet.species ?? undefined,
+            age: pet.age ?? undefined,
+            notes: pet.notes ?? undefined,
+            originCity: pet.originCity ?? undefined,
+          },
+          runtimeContext: new RuntimeContext(),
+        });
+        petRecordIds.push(petResult.recordId);
+      }
 
-    const result = await createPetInAirtableTool.execute({
-      context: {
-        ownerRecordId: personRecordId,
-        name: pet.name ?? undefined,
-        species: pet.species ?? undefined,
-        age: pet.age ?? undefined,
-        notes: pet.notes ?? undefined,
-      },
-      runtimeContext: new RuntimeContext(),
-    });
+      results.push({
+        personRecordId,
+        petRecordIds,
+      });
+    }
 
-    return {
-      personRecordId,
-      petRecordId: result.recordId,
-    };
+    return results;
   },
 });
 
 // =====================================================
 // WORKFLOW COMPLETO
 // Input del workflow: { description: string }
-// Output final: { personRecordId, petRecordId }
+// Output final: Array de { personRecordId, petRecordIds }
 // =====================================================
 export const personPetToAirtableWorkflow = createWorkflow({
   id: "person-pet-to-airtable-workflow",
   inputSchema: z.object({
     description: z.string(),
   }),
-  outputSchema: z.object({
-    personRecordId: z.string(),
-    petRecordId: z.string(),
-  }),
+  outputSchema: workflowResultSchema,
 })
   .then(parseDescriptionStep)
-  .then(createPersonStep)
-  .then(createPetStep)
+  .then(createPeopleAndPetsStep)
   .commit();

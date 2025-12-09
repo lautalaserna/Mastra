@@ -13,13 +13,19 @@ export const petSchema = z.object({
   species: z.string().nullable().optional(),
   age: z.number().int().nullable().optional(),
   notes: z.string().nullable().optional(),
+  originCity: z.string().nullable().optional(),
 });
 
-export const personPetSchema = z.object({
+// Schema para una persona con sus mascotas (array)
+export const personWithPetsSchema = z.object({
   person: personSchema,
-  pet: petSchema,
+  pets: z.array(petSchema),
 });
+
+// Schema para múltiples personas (array de personas con mascotas)
+export const peopleWithPetsSchema = z.array(personWithPetsSchema);
 
 export type Person = z.infer<typeof personSchema>;
 export type Pet = z.infer<typeof petSchema>;
-export type PersonPet = z.infer<typeof personPetSchema>;
+export type PersonWithPets = z.infer<typeof personWithPetsSchema>;
+export type PeopleWithPets = z.infer<typeof peopleWithPetsSchema>;

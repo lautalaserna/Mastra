@@ -24,11 +24,11 @@ export const createPersonInAirtableTool = createTool({
       records: [
         {
           fields: {
-            Name: context.name,
-            Age: context.age,
-            City: context.city,
-            Job: context.job,
-            Bio: context.bio,
+            "Name": context.name,
+            "Age": context.age,
+            "City": context.city,
+            "Job": context.job,
+            "Bio": context.bio,
           },
         },
       ],
