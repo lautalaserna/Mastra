@@ -2,6 +2,9 @@ import { createWorkflow, createStep } from "@mastra/core/workflows";
 import { RuntimeContext } from "@mastra/core/runtime-context";
 import { z } from "zod";
 import { updateAirtableRecordTool } from "../tools/airtable-update-record-tool";
+import { createGoogleDescriptionAgent } from "../agents/google-description-agent";
+import { descriptionPolisherAgent } from "../agents/description-polisher-agent";
+
 
 const searchCompanyInfoStep = createStep({
   id: "search-company-info",
@@ -18,15 +21,39 @@ const searchCompanyInfoStep = createStep({
 
     console.log(`[searchCompanyInfoStep] Starting search for company: ${name}`);
 
-    //const raw = await googleCompanySearch(`${name} company`); // tu función real
-    //const description = await summarizeWithLLM(raw);          // tu agente/LLM
-
-    // TODO: Obtener la description de un agent que busque la empresa en google
-    const description = `Descripción simulada para la empresa ${name}. Esta es una empresa líder en su industria, conocida por su innovación y compromiso con la calidad. Fundada hace más de 20 años, ha crecido hasta convertirse en un actor global con presencia en múltiples mercados. Su misión es proporcionar soluciones excepcionales a sus clientes mientras fomenta un ambiente de trabajo inclusivo y dinámico para sus empleados.`;
+    const agent = createGoogleDescriptionAgent(name);
+    const response = await agent.generate(`Generate a sponsor description for: ${name}`);
+    const description = response.text;
 
     console.log(`[searchCompanyInfoStep] Generated description for ${name}`);
 
     return { airtableRecordId, description };
+  },
+});
+
+const polishDescriptionStep = createStep({
+  id: "polish-description",
+  inputSchema: z.object({
+    airtableRecordId: z.string(),
+    description: z.string(),
+  }),
+  outputSchema: z.object({
+    airtableRecordId: z.string(),
+    description: z.string(),
+  }),
+  execute: async ({ inputData }) => {
+    const { airtableRecordId, description } = inputData;
+
+    console.log(`[polishDescriptionStep] Polishing description for record: ${airtableRecordId}`);
+
+    const response = await descriptionPolisherAgent.generate(
+      `Polish and improve the following sponsor description:\n\n${description}`
+    );
+    const polishedDescription = response.text;
+
+    console.log(`[polishDescriptionStep] Description polished successfully`);
+
+    return { airtableRecordId, description: polishedDescription };
   },
 });
 
@@ -80,5 +107,6 @@ export const companyGoogleDescriptionWorkflow = createWorkflow({
   }),
 })
   .then(searchCompanyInfoStep)
+  .then(polishDescriptionStep)
   .then(updateAirtableDescriptionStep)
   .commit();
