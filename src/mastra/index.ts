@@ -4,9 +4,11 @@ import { PinoLogger } from '@mastra/loggers';
 import { LibSQLStore } from '@mastra/libsql';
 import { personPetAgent } from './agents/person-pet-agent';
 import { personPetToAirtableWorkflow } from './workflows/person-pet-to-airtable-workflow';
+import { companyGoogleDescriptionWorkflow } from './workflows/company-google-description';
+import { apiRoutes } from './api-routes';
 
 export const mastra = new Mastra({
-  workflows: { personPetToAirtableWorkflow },
+  workflows: { personPetToAirtableWorkflow, companyGoogleDescriptionWorkflow },
   agents: { personPetAgent },
   scorers: { },
   storage: new LibSQLStore({
@@ -17,6 +19,9 @@ export const mastra = new Mastra({
     name: 'Mastra',
     level: 'info',
   }),
+  server: {
+    apiRoutes,
+  },
   telemetry: {
     // Telemetry is deprecated and will be removed in the Nov 4th release
     enabled: false, 
